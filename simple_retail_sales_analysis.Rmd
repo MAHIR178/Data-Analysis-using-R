@@ -1,0 +1,213 @@
+---
+title: "Retail Sales Analysis Using Tidyverse"
+author: "Your Name"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    theme: flatly
+    code_folding: show
+    self_contained: true
+---
+
+# 1. Install and load tidyverse
+
+The following code installs `tidyverse` only when it is not already installed.
+
+```{r setup, message=FALSE, warning=FALSE}
+if (!requireNamespace("tidyverse", quietly = TRUE)) {
+  install.packages("tidyverse", repos = "https://cloud.r-project.org")
+}
+
+library(tidyverse)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 9,
+  fig.height = 5
+)
+```
+
+# 2. Import the dataset
+
+Keep `retail_sales.csv` and this R Markdown file in the same folder.
+
+```{r import-data}
+sales_raw <- read_csv("retail_sales.csv", show_col_types = FALSE)
+
+glimpse(sales_raw)
+```
+
+# 3. Clean the data
+
+```{r clean-data}
+sales <- sales_raw |>
+  mutate(
+    order_date = as.Date(order_date),
+    customer_segment = str_squish(customer_segment),
+    customer_segment = replace_na(customer_segment, "Unknown"),
+    customer_segment = if_else(
+      customer_segment == "",
+      "Unknown",
+      customer_segment
+    ),
+    discount = replace_na(discount, 0),
+    returned = as.integer(returned),
+    year = lubridate::year(order_date),
+    month = lubridate::floor_date(order_date, unit = "month"),
+    profit_margin = if_else(revenue > 0, profit / revenue, 0)
+  ) |>
+  distinct(order_id, .keep_all = TRUE) |>
+  filter(
+    !is.na(order_date),
+    units_sold > 0,
+    revenue >= 0,
+    cost >= 0
+  )
+
+cat("Raw rows:", nrow(sales_raw), "\n")
+cat("Clean rows:", nrow(sales), "\n")
+cat("Duplicate rows removed:", nrow(sales_raw) - nrow(sales), "\n")
+```
+
+# 4. Key performance indicators
+
+```{r kpi-summary}
+kpi_summary <- sales |>
+  summarise(
+    Total_Orders = n_distinct(order_id),
+    Total_Revenue = sum(revenue, na.rm = TRUE),
+    Total_Profit = sum(profit, na.rm = TRUE),
+    Average_Order_Value = mean(revenue, na.rm = TRUE),
+    Profit_Margin = sum(profit, na.rm = TRUE) /
+      sum(revenue, na.rm = TRUE),
+    Return_Rate = mean(returned, na.rm = TRUE)
+  ) |>
+  mutate(
+    Total_Revenue = scales::dollar(Total_Revenue),
+    Total_Profit = scales::dollar(Total_Profit),
+    Average_Order_Value = scales::dollar(Average_Order_Value),
+    Profit_Margin = scales::percent(Profit_Margin, accuracy = 0.1),
+    Return_Rate = scales::percent(Return_Rate, accuracy = 0.1)
+  )
+
+knitr::kable(kpi_summary, caption = "Retail sales KPI summary")
+```
+
+# 5. Monthly revenue and profit
+
+```{r monthly-analysis}
+monthly_sales <- sales |>
+  group_by(month) |>
+  summarise(
+    revenue = sum(revenue, na.rm = TRUE),
+    profit = sum(profit, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  pivot_longer(
+    cols = c(revenue, profit),
+    names_to = "metric",
+    values_to = "amount"
+  )
+
+ggplot(monthly_sales, aes(x = month, y = amount, color = metric)) +
+  geom_line(linewidth = 1) +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  scale_color_manual(
+    values = c("revenue" = "#2878B5", "profit" = "#E07A5F")
+  ) +
+  labs(
+    title = "Monthly Revenue and Profit",
+    x = NULL,
+    y = "Amount",
+    color = "Metric"
+  ) +
+  theme_minimal()
+```
+
+# 6. Revenue by region
+
+```{r regional-analysis}
+regional_sales <- sales |>
+  group_by(region) |>
+  summarise(
+    revenue = sum(revenue, na.rm = TRUE),
+    profit = sum(profit, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(revenue))
+
+ggplot(
+  regional_sales,
+  aes(x = reorder(region, revenue), y = revenue, fill = region)
+) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  labs(
+    title = "Revenue by Region",
+    x = "Region",
+    y = "Revenue"
+  ) +
+  theme_minimal()
+```
+
+# 7. Profit by product category
+
+```{r category-analysis}
+category_sales <- sales |>
+  group_by(category) |>
+  summarise(
+    orders = n_distinct(order_id),
+    revenue = sum(revenue, na.rm = TRUE),
+    profit = sum(profit, na.rm = TRUE),
+    profit_margin = profit / revenue,
+    .groups = "drop"
+  ) |>
+  arrange(desc(profit))
+
+knitr::kable(
+  category_sales |>
+    mutate(
+      revenue = scales::dollar(revenue),
+      profit = scales::dollar(profit),
+      profit_margin = scales::percent(profit_margin, accuracy = 0.1)
+    ),
+  caption = "Product category performance"
+)
+
+ggplot(
+  category_sales,
+  aes(x = reorder(category, profit), y = profit, fill = category)
+) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  labs(
+    title = "Profit by Product Category",
+    x = "Category",
+    y = "Profit"
+  ) +
+  theme_minimal()
+```
+
+# 8. Conclusion
+
+```{r conclusion, echo=FALSE}
+best_region <- regional_sales |>
+  slice_max(revenue, n = 1, with_ties = FALSE) |>
+  pull(region)
+
+best_category <- category_sales |>
+  slice_max(profit, n = 1, with_ties = FALSE) |>
+  pull(category)
+```
+
+- **`r best_region`** generated the highest total revenue.
+- **`r best_category`** generated the highest total profit.
+- The business should protect strong regions, review low-performing categories,
+  and monitor discount and return rates.
+
+
