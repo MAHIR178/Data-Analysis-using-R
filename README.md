@@ -1,0 +1,1 @@
+This project analyzes retail sales data using R, R Markdown, and the tidyverse. It includes data cleaning, KPI calculation, and visualizations of monthly sales, regional performance, and product-category profitability. The project demonstrates practical skills in dplyr, tidyr, ggplot2, readr, and business insight generation
